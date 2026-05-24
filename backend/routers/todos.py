@@ -4,7 +4,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Response, UploadFile
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,13 @@ todo_store = JSONStore(os.path.join(DATA_DIR, "todos.json"))
 todo_service = TodoService(todo_store)
 
 router = APIRouter(prefix="/api/todos", tags=["todos"])
+
+# UUID4 regex used to constrain {todo_id} so static-path routes registered
+# below (like /summary, /calendar.ics) aren't accidentally captured.
+_UUID_REGEX = (
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 @router.get("/stats", response_model=TodoStats)
@@ -78,9 +85,15 @@ async def create_todo(
     return todo_service.create(user_id=current_user.id, data=todo_data)
 
 
+# --- Static-path endpoints ------------------------------------------------
+# These MUST be declared before the parameterized "/{todo_id}" routes below,
+# otherwise FastAPI's first-match-wins router will treat words like
+# "summary" or "calendar.ics" as a todo_id and return 404.
+
+
 @router.get("/{todo_id}", response_model=Todo)
 async def get_todo(
-    todo_id: str,
+    todo_id: str = Path(pattern=_UUID_REGEX),
     current_user: User = Depends(get_current_user),
 ) -> Todo:
     """Get a specific todo by ID.
@@ -99,8 +112,8 @@ async def get_todo(
 
 @router.put("/{todo_id}", response_model=Todo)
 async def update_todo(
-    todo_id: str,
     todo_data: TodoUpdate,
+    todo_id: str = Path(pattern=_UUID_REGEX),
     current_user: User = Depends(get_current_user),
 ) -> Todo:
     """Update a specific todo by ID.
@@ -120,7 +133,7 @@ async def update_todo(
 
 @router.delete("/{todo_id}", status_code=204)
 async def delete_todo(
-    todo_id: str,
+    todo_id: str = Path(pattern=_UUID_REGEX),
     current_user: User = Depends(get_current_user),
 ) -> Response:
     """Delete a specific todo by ID.
@@ -139,7 +152,6 @@ async def delete_todo(
 
 
 # --- Extended endpoints ----------------------------------------------------
-
 
 class ReorderBody(BaseModel):
     """Body for the manual reorder endpoint."""
@@ -175,8 +187,8 @@ async def reorder(
 
 @router.post("/{todo_id}/time", response_model=Todo)
 async def add_time(
-    todo_id: str,
     body: TimeBody,
+    todo_id: str = Path(pattern=_UUID_REGEX),
     current_user: User = Depends(get_current_user),
 ) -> Todo:
     """Increment a todo's tracked focus time (Pomodoro) by ``seconds``."""
@@ -193,8 +205,8 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 
 @router.post("/{todo_id}/image", response_model=Todo)
 async def upload_image(
-    todo_id: str,
     file: UploadFile = File(...),
+    todo_id: str = Path(pattern=_UUID_REGEX),
     current_user: User = Depends(get_current_user),
 ) -> Todo:
     """Attach an image to a todo. Replaces any existing image."""
@@ -225,7 +237,7 @@ async def upload_image(
 
 @router.delete("/{todo_id}/image", response_model=Todo)
 async def remove_image(
-    todo_id: str,
+    todo_id: str = Path(pattern=_UUID_REGEX),
     current_user: User = Depends(get_current_user),
 ) -> Todo:
     """Remove the image attached to a todo (if any)."""
@@ -401,7 +413,7 @@ class SubtaskSuggestion(BaseModel):
 
 @router.post("/{todo_id}/suggest-subtasks", response_model=list[SubtaskSuggestion])
 async def suggest_subtasks(
-    todo_id: str,
+    todo_id: str = Path(pattern=_UUID_REGEX),
     current_user: User = Depends(get_current_user),
 ) -> list[SubtaskSuggestion]:
     """Use the configured LLM to suggest 3-5 subtasks for a todo.
