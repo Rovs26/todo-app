@@ -143,6 +143,31 @@ export const todosApi = {
   },
 }
 
+// AI / chat / Whisper API
+export const aiApi = {
+  status() {
+    return apiFetch<{ enabled: boolean }>('/ai/status')
+  },
+
+  transcribe(blob: Blob, filename = 'recording.webm') {
+    const fd = new FormData()
+    fd.append('file', blob, filename)
+    return $fetch<{ text: string | null; source: string }>('/ai/transcribe', {
+      baseURL: BASE_URL,
+      method: 'POST',
+      body: fd,
+      credentials: 'include',
+    })
+  },
+
+  chat(message: string, history: { role: 'user' | 'assistant'; content: string }[]) {
+    return apiFetch<{ reply: string; source: string }>('/ai/chat', {
+      method: 'POST',
+      body: { message, history },
+    })
+  },
+}
+
 // Folders API
 export const foldersApi = {
   list() {

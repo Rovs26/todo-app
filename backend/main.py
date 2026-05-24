@@ -16,6 +16,7 @@ from exceptions import (
     unauthorized_error_handler,
     validation_error_handler,
 )
+from routers.ai import router as ai_router
 from routers.auth import router as auth_router
 from routers.folders import router as folders_router
 from routers.notifications import router as notifications_router
@@ -43,6 +44,7 @@ app.include_router(auth_router)
 app.include_router(todos_router)
 app.include_router(folders_router)
 app.include_router(notifications_router)
+app.include_router(ai_router)
 
 # Serve uploaded images
 UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "data", "uploads")

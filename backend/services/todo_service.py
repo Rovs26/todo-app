@@ -399,6 +399,7 @@ class TodoService:
         ]
 
 
+    def get_stats(self, user_id: str) -> TodoStats:
         """Compute dashboard statistics for the user.
 
         Computes total, completed, pending, and overdue counts.
