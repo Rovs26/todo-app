@@ -1,10 +1,17 @@
-"""Todo router handling CRUD operations and statistics endpoints."""
+"""Todo router handling CRUD operations and statistics endpoints.
+
+NOTE on route ordering: FastAPI matches routes in the order they are
+declared. Every static-path endpoint (``/stats``, ``/summary``, ``/reorder``,
+``/calendar.ics``, ``/ai-status``, ``/tags/list``) MUST be declared before
+the parameterized ``/{todo_id}`` routes. Otherwise the router treats those
+words as a todo id and returns 404 / 422.
+"""
 
 import os
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -21,137 +28,9 @@ todo_service = TodoService(todo_store)
 
 router = APIRouter(prefix="/api/todos", tags=["todos"])
 
-# UUID4 regex used to constrain {todo_id} so static-path routes registered
-# below (like /summary, /calendar.ics) aren't accidentally captured.
-_UUID_REGEX = (
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
-    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
 
+# --- Body schemas ---------------------------------------------------------
 
-@router.get("/stats", response_model=TodoStats)
-async def get_stats(current_user: User = Depends(get_current_user)) -> TodoStats:
-    """Get dashboard statistics for the authenticated user.
-
-    Returns total, completed, pending, and overdue counts.
-
-    Args:
-        current_user: The authenticated user (injected by dependency).
-
-    Returns:
-        TodoStats with computed counts.
-    """
-    return todo_service.get_stats(current_user.id)
-
-
-@router.get("", response_model=list[Todo])
-async def list_todos(
-    status: str | None = Query(default=None, description="Filter by status (pending, in-progress, done)"),
-    priority: str | None = Query(default=None, description="Filter by priority (low, medium, high)"),
-    sort_by: str | None = Query(default=None, description="Sort by field (due_date, created_at, position)"),
-    tag: str | None = Query(default=None, description="Filter by tag (case-insensitive exact match)"),
-    search: str | None = Query(default=None, description="Free-text search over title, description, tags"),
-    folder_id: str | None = Query(default=None, description="Filter by folder id, or 'none' for unassigned"),
-    current_user: User = Depends(get_current_user),
-) -> list[Todo]:
-    """List todos for the authenticated user with optional filtering and sorting."""
-    return todo_service.list_todos(
-        user_id=current_user.id,
-        status=status,
-        priority=priority,
-        sort_by=sort_by,
-        tag=tag,
-        search=search,
-        folder_id=folder_id,
-    )
-
-
-@router.post("", response_model=Todo, status_code=201)
-async def create_todo(
-    todo_data: TodoCreate,
-    current_user: User = Depends(get_current_user),
-) -> Todo:
-    """Create a new todo for the authenticated user.
-
-    Validates request body via Pydantic model and calls todo service create.
-
-    Args:
-        todo_data: The todo creation request body.
-        current_user: The authenticated user (injected by dependency).
-
-    Returns:
-        The created Todo object with 201 status code.
-    """
-    return todo_service.create(user_id=current_user.id, data=todo_data)
-
-
-# --- Static-path endpoints ------------------------------------------------
-# These MUST be declared before the parameterized "/{todo_id}" routes below,
-# otherwise FastAPI's first-match-wins router will treat words like
-# "summary" or "calendar.ics" as a todo_id and return 404.
-
-
-@router.get("/{todo_id}", response_model=Todo)
-async def get_todo(
-    todo_id: str = Path(pattern=_UUID_REGEX),
-    current_user: User = Depends(get_current_user),
-) -> Todo:
-    """Get a specific todo by ID.
-
-    Calls todo service get_by_id which verifies ownership.
-
-    Args:
-        todo_id: The todo's ID to retrieve.
-        current_user: The authenticated user (injected by dependency).
-
-    Returns:
-        The Todo object if found and owned by the user.
-    """
-    return todo_service.get_by_id(user_id=current_user.id, todo_id=todo_id)
-
-
-@router.put("/{todo_id}", response_model=Todo)
-async def update_todo(
-    todo_data: TodoUpdate,
-    todo_id: str = Path(pattern=_UUID_REGEX),
-    current_user: User = Depends(get_current_user),
-) -> Todo:
-    """Update a specific todo by ID.
-
-    Validates request body via Pydantic model and calls todo service update.
-
-    Args:
-        todo_id: The todo's ID to update.
-        todo_data: The todo update request body.
-        current_user: The authenticated user (injected by dependency).
-
-    Returns:
-        The updated Todo object.
-    """
-    return todo_service.update(user_id=current_user.id, todo_id=todo_id, data=todo_data)
-
-
-@router.delete("/{todo_id}", status_code=204)
-async def delete_todo(
-    todo_id: str = Path(pattern=_UUID_REGEX),
-    current_user: User = Depends(get_current_user),
-) -> Response:
-    """Delete a specific todo by ID.
-
-    Calls todo service delete which verifies ownership.
-
-    Args:
-        todo_id: The todo's ID to delete.
-        current_user: The authenticated user (injected by dependency).
-
-    Returns:
-        204 No Content response on success.
-    """
-    todo_service.delete(user_id=current_user.id, todo_id=todo_id)
-    return Response(status_code=204)
-
-
-# --- Extended endpoints ----------------------------------------------------
 
 class ReorderBody(BaseModel):
     """Body for the manual reorder endpoint."""
@@ -170,6 +49,19 @@ class TagInfo(BaseModel):
     count: int
 
 
+class SubtaskSuggestion(BaseModel):
+    title: str
+
+
+# --- Static-path endpoints (MUST come before /{todo_id} routes) -----------
+
+
+@router.get("/stats", response_model=TodoStats)
+async def get_stats(current_user: User = Depends(get_current_user)) -> TodoStats:
+    """Get dashboard statistics for the authenticated user."""
+    return todo_service.get_stats(current_user.id)
+
+
 @router.get("/tags/list", response_model=list[TagInfo])
 async def list_tags(current_user: User = Depends(get_current_user)) -> list[dict]:
     """Distinct tags used by the user with usage counts."""
@@ -185,86 +77,10 @@ async def reorder(
     return todo_service.reorder(current_user.id, body.ordered_ids)
 
 
-@router.post("/{todo_id}/time", response_model=Todo)
-async def add_time(
-    body: TimeBody,
-    todo_id: str = Path(pattern=_UUID_REGEX),
-    current_user: User = Depends(get_current_user),
-) -> Todo:
-    """Increment a todo's tracked focus time (Pomodoro) by ``seconds``."""
-    return todo_service.add_time(current_user.id, todo_id, body.seconds)
-
-
-# Image upload --------------------------------------------------------------
-
-UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
-os.makedirs(UPLOADS_DIR, exist_ok=True)
-ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
-MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
-
-
-@router.post("/{todo_id}/image", response_model=Todo)
-async def upload_image(
-    file: UploadFile = File(...),
-    todo_id: str = Path(pattern=_UUID_REGEX),
-    current_user: User = Depends(get_current_user),
-) -> Todo:
-    """Attach an image to a todo. Replaces any existing image."""
-    # Verify ownership before doing any disk work
-    todo_service.get_by_id(current_user.id, todo_id)
-
-    if file.content_type not in ALLOWED_IMAGE_TYPES:
-        raise HTTPException(status_code=415, detail="Unsupported image type")
-
-    contents = await file.read()
-    if len(contents) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Image too large (max 5 MB)")
-
-    extension = {
-        "image/png": ".png",
-        "image/jpeg": ".jpg",
-        "image/gif": ".gif",
-        "image/webp": ".webp",
-    }[file.content_type]
-    filename = f"{uuid.uuid4().hex}{extension}"
-    path = os.path.join(UPLOADS_DIR, filename)
-    with open(path, "wb") as fh:
-        fh.write(contents)
-
-    image_url = f"/uploads/{filename}"
-    return todo_service.set_image(current_user.id, todo_id, image_url)
-
-
-@router.delete("/{todo_id}/image", response_model=Todo)
-async def remove_image(
-    todo_id: str = Path(pattern=_UUID_REGEX),
-    current_user: User = Depends(get_current_user),
-) -> Todo:
-    """Remove the image attached to a todo (if any)."""
-    todo = todo_service.get_by_id(current_user.id, todo_id)
-    if todo.image_url:
-        # Best-effort: delete the underlying file too
-        rel = todo.image_url.lstrip("/")
-        if rel.startswith("uploads/"):
-            file_path = os.path.join(UPLOADS_DIR, os.path.basename(rel))
-            if os.path.exists(file_path):
-                try:
-                    os.unlink(file_path)
-                except OSError:
-                    pass
-    return todo_service.set_image(current_user.id, todo_id, None)
-
-
-# Calendar export -----------------------------------------------------------
-
-def _ics_escape(text: str) -> str:
-    return (
-        (text or "")
-        .replace("\\", "\\\\")
-        .replace(",", "\\,")
-        .replace(";", "\\;")
-        .replace("\n", "\\n")
-    )
+@router.get("/ai-status")
+async def ai_status() -> dict:
+    """Tell the frontend whether AI features are wired up."""
+    return {"enabled": ai_service.is_enabled()}
 
 
 @router.get("/calendar.ics", response_class=PlainTextResponse)
@@ -321,17 +137,12 @@ async def calendar_ics(current_user: User = Depends(get_current_user)) -> PlainT
     return PlainTextResponse(content=body, media_type="text/calendar", headers=headers)
 
 
-# AI-style summary ----------------------------------------------------------
-
 @router.get("/summary")
 async def summary(current_user: User = Depends(get_current_user)) -> dict:
-    """Return a deterministic, locally-computed summary of the user's todos.
+    """AI-augmented summary of the user's todos.
 
-    No external API key required. The summary highlights:
-    - total / pending / overdue / completed
-    - the next upcoming due date
-    - top tags
-    - a short, plain-language paragraph
+    Falls back to a deterministic local summary when the OpenAI key isn't
+    configured.
     """
     todos = todo_service.list_todos(user_id=current_user.id)
     stats = todo_service.get_stats(current_user.id)
@@ -404,23 +215,114 @@ async def summary(current_user: User = Depends(get_current_user)) -> dict:
     }
 
 
-# AI subtask suggestions ----------------------------------------------------
+# --- Collection endpoints -------------------------------------------------
 
 
-class SubtaskSuggestion(BaseModel):
-    title: str
+@router.get("", response_model=list[Todo])
+async def list_todos(
+    status: str | None = Query(default=None, description="Filter by status (pending, in-progress, done)"),
+    priority: str | None = Query(default=None, description="Filter by priority (low, medium, high)"),
+    sort_by: str | None = Query(default=None, description="Sort by field (due_date, created_at, position)"),
+    tag: str | None = Query(default=None, description="Filter by tag (case-insensitive exact match)"),
+    search: str | None = Query(default=None, description="Free-text search over title, description, tags"),
+    folder_id: str | None = Query(default=None, description="Filter by folder id, or 'none' for unassigned"),
+    current_user: User = Depends(get_current_user),
+) -> list[Todo]:
+    """List todos for the authenticated user with optional filtering and sorting."""
+    return todo_service.list_todos(
+        user_id=current_user.id,
+        status=status,
+        priority=priority,
+        sort_by=sort_by,
+        tag=tag,
+        search=search,
+        folder_id=folder_id,
+    )
+
+
+@router.post("", response_model=Todo, status_code=201)
+async def create_todo(
+    todo_data: TodoCreate,
+    current_user: User = Depends(get_current_user),
+) -> Todo:
+    """Create a new todo for the authenticated user."""
+    return todo_service.create(user_id=current_user.id, data=todo_data)
+
+
+# --- Per-todo endpoints (parameterized — declared LAST) -------------------
+
+UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+@router.post("/{todo_id}/time", response_model=Todo)
+async def add_time(
+    todo_id: str,
+    body: TimeBody,
+    current_user: User = Depends(get_current_user),
+) -> Todo:
+    """Increment a todo's tracked focus time (Pomodoro) by ``seconds``."""
+    return todo_service.add_time(current_user.id, todo_id, body.seconds)
+
+
+@router.post("/{todo_id}/image", response_model=Todo)
+async def upload_image(
+    todo_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+) -> Todo:
+    """Attach an image to a todo. Replaces any existing image."""
+    todo_service.get_by_id(current_user.id, todo_id)
+
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=415, detail="Unsupported image type")
+
+    contents = await file.read()
+    if len(contents) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Image too large (max 5 MB)")
+
+    extension = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+    }[file.content_type]
+    filename = f"{uuid.uuid4().hex}{extension}"
+    path = os.path.join(UPLOADS_DIR, filename)
+    with open(path, "wb") as fh:
+        fh.write(contents)
+
+    image_url = f"/uploads/{filename}"
+    return todo_service.set_image(current_user.id, todo_id, image_url)
+
+
+@router.delete("/{todo_id}/image", response_model=Todo)
+async def remove_image(
+    todo_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Todo:
+    """Remove the image attached to a todo (if any)."""
+    todo = todo_service.get_by_id(current_user.id, todo_id)
+    if todo.image_url:
+        rel = todo.image_url.lstrip("/")
+        if rel.startswith("uploads/"):
+            file_path = os.path.join(UPLOADS_DIR, os.path.basename(rel))
+            if os.path.exists(file_path):
+                try:
+                    os.unlink(file_path)
+                except OSError:
+                    pass
+    return todo_service.set_image(current_user.id, todo_id, None)
 
 
 @router.post("/{todo_id}/suggest-subtasks", response_model=list[SubtaskSuggestion])
 async def suggest_subtasks(
-    todo_id: str = Path(pattern=_UUID_REGEX),
+    todo_id: str,
     current_user: User = Depends(get_current_user),
 ) -> list[SubtaskSuggestion]:
-    """Use the configured LLM to suggest 3-5 subtasks for a todo.
-
-    Returns an empty list when no API key is configured or the call fails —
-    the caller can decide how to surface that.
-    """
+    """Use the configured LLM to suggest 3-5 subtasks for a todo."""
     todo = todo_service.get_by_id(current_user.id, todo_id)
     suggestions = ai_service.suggest_subtasks(
         title=todo.title, description=todo.description
@@ -428,7 +330,43 @@ async def suggest_subtasks(
     return [SubtaskSuggestion(title=s) for s in suggestions]
 
 
-@router.get("/ai-status")
-async def ai_status() -> dict:
-    """Tell the frontend whether AI features are wired up."""
-    return {"enabled": ai_service.is_enabled()}
+@router.get("/{todo_id}", response_model=Todo)
+async def get_todo(
+    todo_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Todo:
+    """Get a specific todo by ID."""
+    return todo_service.get_by_id(user_id=current_user.id, todo_id=todo_id)
+
+
+@router.put("/{todo_id}", response_model=Todo)
+async def update_todo(
+    todo_id: str,
+    todo_data: TodoUpdate,
+    current_user: User = Depends(get_current_user),
+) -> Todo:
+    """Update a specific todo by ID."""
+    return todo_service.update(user_id=current_user.id, todo_id=todo_id, data=todo_data)
+
+
+@router.delete("/{todo_id}", status_code=204)
+async def delete_todo(
+    todo_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Delete a specific todo by ID."""
+    todo_service.delete(user_id=current_user.id, todo_id=todo_id)
+    return Response(status_code=204)
+
+
+# --- Helpers --------------------------------------------------------------
+
+
+def _ics_escape(text: str) -> str:
+    return (
+        (text or "")
+        .replace("\\", "\\\\")
+        .replace(",", "\\,")
+        .replace(";", "\\;")
+        .replace("\n", "\\n")
+    )
