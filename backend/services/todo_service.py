@@ -5,8 +5,56 @@ import uuid
 from datetime import date, datetime, timezone
 
 from exceptions import NotFoundError, ValidationError
-from models import Priority, Status, Todo, TodoCreate, TodoStats, TodoUpdate
+from models import (
+    Priority,
+    Status,
+    Subtask,
+    Todo,
+    TodoCreate,
+    TodoStats,
+    TodoUpdate,
+)
 from store import JSONStore
+
+
+def _normalize_tags(tags: list[str] | None) -> list[str]:
+    if not tags:
+        return []
+    seen: list[str] = []
+    for raw in tags:
+        if not isinstance(raw, str):
+            continue
+        cleaned = raw.strip().lower()
+        if not cleaned:
+            continue
+        if len(cleaned) > 32:
+            cleaned = cleaned[:32]
+        if cleaned not in seen:
+            seen.append(cleaned)
+    return seen
+
+
+def _normalize_subtasks(subtasks: list[Subtask] | list[dict] | None) -> list[dict]:
+    if not subtasks:
+        return []
+    out: list[dict] = []
+    for entry in subtasks:
+        if isinstance(entry, Subtask):
+            out.append(entry.model_dump())
+            continue
+        if not isinstance(entry, dict):
+            continue
+        title = (entry.get("title") or "").strip()
+        if not title:
+            continue
+        out.append(
+            {
+                "id": entry.get("id") or str(uuid.uuid4()),
+                "title": title[:200],
+                "done": bool(entry.get("done", False)),
+            }
+        )
+    return out
 
 
 class TodoService:
@@ -51,6 +99,11 @@ class TodoService:
             reminder_at_value = parsed_reminder.isoformat()
 
         # Create todo record with defaults
+        existing_records = self.todo_store.read_all()
+        max_position = max(
+            (r.get("position", 0) for r in existing_records if r.get("user_id") == user_id),
+            default=-1,
+        )
         todo_data = {
             "id": str(uuid.uuid4()),
             "user_id": user_id,
@@ -60,6 +113,12 @@ class TodoService:
             "due_date": data.due_date,
             "reminder_at": reminder_at_value,
             "status": data.status.value if data.status else Status.PENDING.value,
+            "folder_id": data.folder_id,
+            "tags": _normalize_tags(data.tags),
+            "subtasks": _normalize_subtasks(data.subtasks),
+            "image_url": None,
+            "position": max_position + 1,
+            "time_spent_seconds": 0,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": None,
         }
@@ -74,23 +133,15 @@ class TodoService:
         status: str | None = None,
         priority: str | None = None,
         sort_by: str | None = None,
+        tag: str | None = None,
+        search: str | None = None,
+        folder_id: str | None = None,
     ) -> list[Todo]:
         """List user's todos with optional filtering and sorting.
 
-        Filters by user_id, applies optional status/priority filters,
-        and applies sort (due_date asc with nulls last, created_at desc).
-
-        Args:
-            user_id: The authenticated user's ID.
-            status: Optional status filter value.
-            priority: Optional priority filter value.
-            sort_by: Optional sort field ("due_date" or "created_at").
-
-        Returns:
-            A list of Todo objects matching the criteria.
-
-        Raises:
-            ValidationError: If filter/sort values are invalid.
+        Filters by user_id, applies optional status/priority/tag/search/folder
+        filters, and applies sort (due_date asc with nulls last, created_at
+        desc, or manual ``position`` order).
         """
         # Validate filter values
         if status is not None:
@@ -108,7 +159,7 @@ class TodoService:
                 )
 
         if sort_by is not None:
-            valid_sorts = ["due_date", "created_at"]
+            valid_sorts = ["due_date", "created_at", "position"]
             if sort_by not in valid_sorts:
                 raise ValidationError(
                     [{"field": "sort_by", "message": f"Invalid sort_by value. Must be one of: {', '.join(valid_sorts)}"}]
@@ -126,13 +177,38 @@ class TodoService:
         if priority is not None:
             user_todos = [r for r in user_todos if r.get("priority") == priority]
 
+        # Apply tag filter (case-insensitive exact match)
+        if tag is not None:
+            tag_lower = tag.strip().lower()
+            if tag_lower:
+                user_todos = [r for r in user_todos if tag_lower in (r.get("tags") or [])]
+
+        # Apply folder filter ("none" matches todos with no folder)
+        if folder_id is not None:
+            if folder_id == "none":
+                user_todos = [r for r in user_todos if not r.get("folder_id")]
+            else:
+                user_todos = [r for r in user_todos if r.get("folder_id") == folder_id]
+
+        # Apply free-text search across title + description + tags
+        if search is not None:
+            needle = search.strip().lower()
+            if needle:
+                def _matches(record: dict) -> bool:
+                    title = (record.get("title") or "").lower()
+                    description = (record.get("description") or "").lower()
+                    tags = " ".join(record.get("tags") or []).lower()
+                    return needle in title or needle in description or needle in tags
+
+                user_todos = [r for r in user_todos if _matches(r)]
+
         # Apply sorting
         if sort_by == "due_date":
-            # Ascending order with nulls last
             user_todos.sort(key=lambda r: (r.get("due_date") is None, r.get("due_date") or ""))
         elif sort_by == "created_at":
-            # Descending order
             user_todos.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        elif sort_by == "position":
+            user_todos.sort(key=lambda r: (r.get("position", 0), r.get("created_at", "")))
 
         return [Todo(**r) for r in user_todos]
 
@@ -211,6 +287,19 @@ class TodoService:
         if data.status is not None:
             updates["status"] = data.status.value
 
+        if data.tags is not None:
+            updates["tags"] = _normalize_tags(data.tags)
+
+        if data.subtasks is not None:
+            updates["subtasks"] = _normalize_subtasks(data.subtasks)
+
+        if data.folder_id is not None:
+            # Empty string clears the folder assignment
+            updates["folder_id"] = data.folder_id or None
+
+        if data.position is not None:
+            updates["position"] = int(data.position)
+
         # Set updated_at timestamp
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -246,7 +335,70 @@ class TodoService:
         if not deleted:
             raise NotFoundError("Todo not found")
 
-    def get_stats(self, user_id: str) -> TodoStats:
+    def reorder(self, user_id: str, ordered_ids: list[str]) -> list[Todo]:
+        """Persist a manual ordering for the given todo ids.
+
+        Each id in ``ordered_ids`` must belong to ``user_id``; ids not in the
+        list keep their existing position. Returns the user's todos in the new
+        order.
+        """
+        records = self.todo_store.read_all()
+        owned_ids = {r["id"] for r in records if r.get("user_id") == user_id}
+        unknown = [tid for tid in ordered_ids if tid not in owned_ids]
+        if unknown:
+            raise NotFoundError("One or more todos not found")
+
+        rank = {tid: idx for idx, tid in enumerate(ordered_ids)}
+        for r in records:
+            if r["id"] in rank:
+                r["position"] = rank[r["id"]]
+        self.todo_store.write_all(records)
+        return self.list_todos(user_id=user_id, sort_by="position")
+
+    def add_time(self, user_id: str, todo_id: str, seconds: int) -> Todo:
+        """Add ``seconds`` to a todo's ``time_spent_seconds`` (Pomodoro)."""
+        if seconds < 0:
+            raise ValidationError([{"field": "seconds", "message": "seconds must be >= 0"}])
+        record = self.todo_store.find_by_id(todo_id)
+        if not record or record.get("user_id") != user_id:
+            raise NotFoundError("Todo not found")
+        new_total = int(record.get("time_spent_seconds") or 0) + int(seconds)
+        updated = self.todo_store.update(
+            todo_id,
+            {
+                "time_spent_seconds": new_total,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return Todo(**updated)
+
+    def set_image(self, user_id: str, todo_id: str, image_url: str | None) -> Todo:
+        """Attach (or detach) an image URL to a todo."""
+        record = self.todo_store.find_by_id(todo_id)
+        if not record or record.get("user_id") != user_id:
+            raise NotFoundError("Todo not found")
+        updated = self.todo_store.update(
+            todo_id,
+            {
+                "image_url": image_url,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return Todo(**updated)
+
+    def list_tags(self, user_id: str) -> list[dict]:
+        """Return distinct tags used by the user with usage counts."""
+        records = [r for r in self.todo_store.read_all() if r.get("user_id") == user_id]
+        counts: dict[str, int] = {}
+        for r in records:
+            for tag in r.get("tags") or []:
+                counts[tag] = counts.get(tag, 0) + 1
+        return [
+            {"name": name, "count": count}
+            for name, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
+
+
         """Compute dashboard statistics for the user.
 
         Computes total, completed, pending, and overdue counts.

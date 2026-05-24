@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Make the backend root importable so we can use the same flat-import style
@@ -21,7 +21,11 @@ if str(_BACKEND_ROOT) not in sys.path:
 
 from exceptions import NotFoundError  # noqa: E402
 from reminder_checker import NotificationType, check_user  # noqa: E402
+from services import ai_service  # noqa: E402
 from store import JSONStore  # noqa: E402
+
+AI_COACH_TYPE = "ai_coach"
+AI_COACH_INTERVAL = timedelta(hours=6)
 
 
 class NotificationService:
@@ -75,7 +79,65 @@ class NotificationService:
             self.notification_store.add(record)
             new_records.append(record)
 
+        ai_notification = self._maybe_emit_ai_coach(user_id, user_todos, existing, now)
+        if ai_notification:
+            new_records.append(ai_notification)
+
         return new_records
+
+    # ------------------------------------------------------------------
+    # AI coach notification (rate-limited)
+    # ------------------------------------------------------------------
+    def _maybe_emit_ai_coach(
+        self,
+        user_id: str,
+        user_todos: list[dict],
+        existing: list[dict],
+        now: datetime,
+    ) -> dict | None:
+        if not ai_service.is_enabled():
+            return None
+        if not [t for t in user_todos if t.get("status") != "done"]:
+            return None
+
+        # Throttle: don't emit if we already produced an AI nudge recently.
+        latest = max(
+            (
+                _parse_iso(n.get("delivered_at"))
+                for n in existing
+                if n.get("notification_type") == AI_COACH_TYPE
+            ),
+            default=None,
+        )
+        if latest is not None and (now - latest) < AI_COACH_INTERVAL:
+            return None
+
+        # Folders are best-effort context — skip if unavailable.
+        try:
+            from routers.folders import folder_service
+
+            folders = [
+                f.model_dump() for f in folder_service.list_for_user(user_id)
+            ]
+        except Exception:
+            folders = []
+
+        message = ai_service.coach_message(todos=user_todos, folders=folders)
+        if not message:
+            return None
+
+        record = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "todo_id": "",
+            "todo_title": message,
+            "notification_type": AI_COACH_TYPE,
+            "triggered_at": now.isoformat(),
+            "delivered_at": now.isoformat(),
+            "read": False,
+        }
+        self.notification_store.add(record)
+        return record
 
     # ------------------------------------------------------------------
     # User-facing reads
@@ -137,3 +199,15 @@ class NotificationService:
         if removed:
             self.notification_store.write_all(kept)
         return removed
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None

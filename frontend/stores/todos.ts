@@ -10,6 +10,9 @@ interface TodosState {
   filters: {
     status: string | undefined
     priority: string | undefined
+    tag: string | undefined
+    search: string | undefined
+    folder_id: string | undefined
   }
   sort_by: string | undefined
 }
@@ -23,6 +26,9 @@ export const useTodosStore = defineStore('todos', {
     filters: {
       status: undefined,
       priority: undefined,
+      tag: undefined,
+      search: undefined,
+      folder_id: undefined,
     },
     sort_by: undefined,
   }),
@@ -46,6 +52,9 @@ export const useTodosStore = defineStore('todos', {
         const params: Record<string, string | undefined> = {
           status: this.filters.status,
           priority: this.filters.priority,
+          tag: this.filters.tag,
+          search: this.filters.search,
+          folder_id: this.filters.folder_id,
           sort_by: this.sort_by,
         }
         this.todos = await todosApi.list(params)
@@ -107,7 +116,7 @@ export const useTodosStore = defineStore('todos', {
       }
     },
 
-    setFilter(key: 'status' | 'priority', value: string | undefined) {
+    setFilter(key: 'status' | 'priority' | 'tag' | 'search' | 'folder_id', value: string | undefined) {
       this.filters[key] = value
     },
 

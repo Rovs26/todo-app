@@ -13,10 +13,15 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const user = useState<User | null>('auth-user', () => null)
   const authChecked = useState<boolean>('auth-checked', () => false)
 
-  // Check auth state on initial load (only once)
+  // Check auth state on initial load (only once).
+  // On the server we forward the incoming Cookie header so the JWT reaches
+  // the FastAPI backend; otherwise SSR refreshes always look unauthenticated.
   if (!authChecked.value) {
     try {
-      const currentUser = await authApi.me()
+      const headers = import.meta.server
+        ? useRequestHeaders(['cookie'])
+        : undefined
+      const currentUser = await authApi.me(headers)
       user.value = currentUser
     } catch {
       user.value = null

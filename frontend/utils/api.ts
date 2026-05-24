@@ -1,4 +1,17 @@
-import type { User, Todo, TodoStats, TodoCreate, TodoUpdate, Notification } from '~/types'
+import type {
+  User,
+  Todo,
+  TodoStats,
+  TodoCreate,
+  TodoUpdate,
+  Notification,
+  TagInfo,
+  SummaryResponse,
+  Folder,
+  FolderCreate,
+  FolderStats,
+  FolderUpdate,
+} from '~/types'
 
 const BASE_URL = 'http://localhost:8000/api'
 const TIMEOUT_MS = 15000
@@ -7,10 +20,11 @@ interface FetchOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
   params?: Record<string, string | undefined>
+  headers?: Record<string, string>
 }
 
 async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
-  const { method = 'GET', body, params } = options
+  const { method = 'GET', body, params, headers } = options
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
@@ -25,6 +39,7 @@ async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T>
             Object.entries(params).filter(([, v]) => v !== undefined)
           )
         : undefined,
+      headers,
       credentials: 'include',
       signal: controller.signal,
     })
@@ -53,14 +68,14 @@ export const authApi = {
     return apiFetch<void>('/auth/logout', { method: 'POST' })
   },
 
-  me() {
-    return apiFetch<User>('/auth/me')
+  me(headers?: Record<string, string>) {
+    return apiFetch<User>('/auth/me', { headers })
   },
 }
 
 // Todos API
 export const todosApi = {
-  list(params?: { status?: string; priority?: string; sort_by?: string }) {
+  list(params?: { status?: string; priority?: string; sort_by?: string; tag?: string; search?: string; folder_id?: string }) {
     return apiFetch<Todo[]>('/todos', { params })
   },
 
@@ -82,6 +97,76 @@ export const todosApi = {
 
   stats() {
     return apiFetch<TodoStats>('/todos/stats')
+  },
+
+  tags() {
+    return apiFetch<TagInfo[]>('/todos/tags/list')
+  },
+
+  reorder(ordered_ids: string[]) {
+    return apiFetch<Todo[]>('/todos/reorder', { method: 'POST', body: { ordered_ids } })
+  },
+
+  addTime(id: string, seconds: number) {
+    return apiFetch<Todo>(`/todos/${id}/time`, { method: 'POST', body: { seconds } })
+  },
+
+  uploadImage(id: string, file: File) {
+    const fd = new FormData()
+    fd.append('file', file)
+    return $fetch<Todo>(`/todos/${id}/image`, {
+      baseURL: BASE_URL,
+      method: 'POST',
+      body: fd,
+      credentials: 'include',
+    })
+  },
+
+  deleteImage(id: string) {
+    return apiFetch<Todo>(`/todos/${id}/image`, { method: 'DELETE' })
+  },
+
+  summary() {
+    return apiFetch<SummaryResponse>('/todos/summary')
+  },
+
+  calendarUrl() {
+    return `${BASE_URL}/todos/calendar.ics`
+  },
+
+  suggestSubtasks(id: string) {
+    return apiFetch<{ title: string }[]>(`/todos/${id}/suggest-subtasks`, { method: 'POST' })
+  },
+
+  aiStatus() {
+    return apiFetch<{ enabled: boolean }>('/todos/ai-status')
+  },
+}
+
+// Folders API
+export const foldersApi = {
+  list() {
+    return apiFetch<Folder[]>('/folders')
+  },
+
+  stats() {
+    return apiFetch<FolderStats[]>('/folders/stats')
+  },
+
+  get(id: string) {
+    return apiFetch<Folder>(`/folders/${id}`)
+  },
+
+  create(data: FolderCreate) {
+    return apiFetch<Folder>('/folders', { method: 'POST', body: data })
+  },
+
+  update(id: string, data: FolderUpdate) {
+    return apiFetch<Folder>(`/folders/${id}`, { method: 'PUT', body: data })
+  },
+
+  delete(id: string) {
+    return apiFetch<void>(`/folders/${id}`, { method: 'DELETE' })
   },
 }
 

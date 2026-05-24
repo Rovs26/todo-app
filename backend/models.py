@@ -59,6 +59,14 @@ class Status(str, Enum):
 # --- Todo Models ---
 
 
+class Subtask(BaseModel):
+    """A single sub-item on a todo (used for checklists)."""
+
+    id: str
+    title: str = Field(min_length=1, max_length=200)
+    done: bool = False
+
+
 class Todo(BaseModel):
     """Internal todo model with all fields."""
 
@@ -70,6 +78,12 @@ class Todo(BaseModel):
     due_date: str | None = None  # ISO 8601 date (YYYY-MM-DD) or None
     reminder_at: datetime | None = None  # ISO 8601 datetime for reminder trigger
     status: Status = Status.PENDING
+    folder_id: str | None = None  # Optional grouping under a Folder
+    tags: list[str] = Field(default_factory=list)  # User-defined labels
+    subtasks: list[Subtask] = Field(default_factory=list)
+    image_url: str | None = None  # Server-relative URL (set by upload endpoint)
+    position: int = 0  # User-defined ordering (lower first)
+    time_spent_seconds: int = 0  # Pomodoro / focus time accumulator
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -83,6 +97,9 @@ class TodoCreate(BaseModel):
     due_date: str | None = None  # Validated as YYYY-MM-DD
     reminder_at: str | None = None  # ISO 8601 datetime string
     status: Status = Status.PENDING
+    folder_id: str | None = None
+    tags: list[str] | None = None
+    subtasks: list[Subtask] | None = None
 
 
 class TodoUpdate(BaseModel):
@@ -94,6 +111,10 @@ class TodoUpdate(BaseModel):
     due_date: str | None = None
     reminder_at: str | None = None  # ISO 8601 datetime string, explicit null clears
     status: Status | None = None
+    folder_id: str | None = None  # Empty string clears the folder assignment
+    tags: list[str] | None = None
+    subtasks: list[Subtask] | None = None
+    position: int | None = None
 
 
 class TodoStats(BaseModel):
@@ -103,3 +124,30 @@ class TodoStats(BaseModel):
     completed: int
     pending: int
     overdue: int
+
+
+# --- Folder Models ---
+
+
+class Folder(BaseModel):
+    """A folder / category that groups related todos for one user."""
+
+    id: str
+    user_id: str
+    name: str = Field(min_length=1, max_length=80)
+    color: str | None = None  # Free-form hex like #6366F1
+    icon: str | None = None  # Optional emoji or short label
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class FolderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str | None = None
+    icon: str | None = None
+
+
+class FolderUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    color: str | None = None
+    icon: str | None = None

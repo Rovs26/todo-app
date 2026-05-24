@@ -1,7 +1,10 @@
 """FastAPI application entry point."""
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from exceptions import (
     ConflictError,
@@ -14,6 +17,7 @@ from exceptions import (
     validation_error_handler,
 )
 from routers.auth import router as auth_router
+from routers.folders import router as folders_router
 from routers.notifications import router as notifications_router
 from routers.todos import router as todos_router
 
@@ -37,7 +41,13 @@ app.add_exception_handler(NotFoundError, not_found_error_handler)
 # Include routers
 app.include_router(auth_router)
 app.include_router(todos_router)
+app.include_router(folders_router)
 app.include_router(notifications_router)
+
+# Serve uploaded images
+UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "data", "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
 @app.get("/")

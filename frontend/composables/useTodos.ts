@@ -47,6 +47,11 @@ export function useTodos() {
       due_date: data.due_date ?? null,
       reminder_at: data.reminder_at ?? null,
       status: data.status ?? 'pending',
+      tags: data.tags ?? [],
+      subtasks: data.subtasks ?? [],
+      image_url: null,
+      position: 0,
+      time_spent_seconds: 0,
       created_at: new Date().toISOString(),
       updated_at: null,
     }
@@ -137,7 +142,7 @@ export function useTodos() {
     }
   }
 
-  function setFilter(key: 'status' | 'priority', value: string | undefined) {
+  function setFilter(key: 'status' | 'priority' | 'tag' | 'search' | 'folder_id', value: string | undefined) {
     store.setFilter(key, value)
   }
 

@@ -89,6 +89,9 @@
                 <svg v-if="n.notification_type === 'reminder_due'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
+                <svg v-else-if="n.notification_type === 'ai_coach'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
                 <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.732-3L13.732 4a2 2 0 00-3.464 0L3.268 16A2 2 0 005 19z" />
                 </svg>
@@ -98,7 +101,10 @@
                   {{ titleFor(n) }}
                 </p>
                 <p class="text-xs text-secondary-500 dark:text-secondary-400 mt-0.5">
-                  {{ formatRelative(n.delivered_at) }}
+                  <span v-if="n.notification_type === 'ai_coach'">AI nudge</span>
+                  <span v-else-if="n.notification_type === 'reminder_due'">Reminder</span>
+                  <span v-else-if="n.notification_type === 'overdue'">Overdue</span>
+                  · {{ formatRelative(n.delivered_at) }}
                 </p>
               </div>
               <span
@@ -179,12 +185,21 @@ function titleFor(n: Notification): string {
   if (n.notification_type === 'reminder_due') {
     return `Reminder: ${n.todo_title}`
   }
-  return `Overdue: ${n.todo_title}`
+  if (n.notification_type === 'overdue') {
+    return `Overdue: ${n.todo_title}`
+  }
+  if (n.notification_type === 'ai_coach') {
+    return n.todo_title
+  }
+  return n.todo_title
 }
 
 function iconWrapperClasses(kind: Notification['notification_type']): string {
   if (kind === 'overdue') {
     return 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+  }
+  if (kind === 'ai_coach') {
+    return 'bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400'
   }
   return 'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
 }
