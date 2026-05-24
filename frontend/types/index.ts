@@ -31,3 +31,16 @@ export type TodoCreate = Pick<Todo, 'title'> &
 export type TodoUpdate = Partial<
   Pick<Todo, 'title' | 'description' | 'priority' | 'due_date' | 'reminder_at' | 'status'>
 >
+
+export type NotificationType = 'reminder_due' | 'overdue'
+
+export interface Notification {
+  id: string
+  user_id: string
+  todo_id: string
+  todo_title: string
+  notification_type: NotificationType
+  triggered_at: string
+  delivered_at: string
+  read: boolean
+}

@@ -164,8 +164,18 @@
                     :class="{ 'border-red-500 focus:ring-red-500 focus:border-red-500': errors.reminder_at }"
                     :disabled="submitting"
                   />
-                  <p v-if="errors.reminder_at" class="mt-1.5 text-sm text-red-600 dark:text-red-400" role="alert">
+                  <p
+                    v-if="errors.reminder_at"
+                    class="mt-1.5 text-sm text-red-600 dark:text-red-400"
+                    role="alert"
+                  >
                     {{ errors.reminder_at }}
+                  </p>
+                  <p
+                    v-else
+                    class="mt-1 text-xs text-red-500 dark:text-red-400"
+                  >
+                    Set a date and time to be reminded
                   </p>
                 </div>
               </div>

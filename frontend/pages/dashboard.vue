@@ -14,6 +14,7 @@
 
           <!-- Right side actions -->
           <div class="flex items-center gap-2">
+            <NotificationBell />
             <DarkModeToggle />
             <button
               type="button"
@@ -137,10 +138,14 @@
                     <!-- Reminder -->
                     <span
                       v-if="todo.reminder_at"
-                      class="text-xs text-primary-600 dark:text-primary-400"
+                      class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
+                      :class="reminderBadgeClasses(todo)"
                       :title="`Reminder: ${formatDateTime(todo.reminder_at)}`"
                     >
-                      ⏰ {{ formatDateTime(todo.reminder_at) }}
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                      {{ reminderBadgeLabel(todo) }}
                     </span>
                   </div>
                 </div>
@@ -263,7 +268,7 @@
               <!-- Reminder -->
               <div class="mb-4">
                 <label for="todo-reminder-at" class="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1.5">
-                  Reminder (optional)
+                  Reminder
                 </label>
                 <input
                   id="todo-reminder-at"
@@ -271,6 +276,9 @@
                   type="datetime-local"
                   class="input-field"
                 />
+                <p class="mt-1 text-xs text-red-500 dark:text-red-400">
+                  Set a date and time to be reminded
+                </p>
               </div>
 
               <!-- Actions -->
@@ -544,5 +552,22 @@ function isOverdue(todo: Todo): boolean {
   today.setHours(0, 0, 0, 0)
   const dueDate = new Date(todo.due_date + 'T00:00:00')
   return dueDate < today
+}
+
+function reminderBadgeClasses(todo: Todo): string {
+  if (!todo.reminder_at) return ''
+  const reminder = new Date(todo.reminder_at)
+  if (isNaN(reminder.getTime())) return 'bg-secondary-100 text-secondary-700 dark:bg-secondary-700 dark:text-secondary-300'
+  if (reminder.getTime() > Date.now()) {
+    return 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+  }
+  return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+}
+
+function reminderBadgeLabel(todo: Todo): string {
+  if (!todo.reminder_at) return ''
+  const reminder = new Date(todo.reminder_at)
+  if (isNaN(reminder.getTime())) return 'Reminder'
+  return reminder.getTime() > Date.now() ? 'Upcoming' : 'Due'
 }
 </script>

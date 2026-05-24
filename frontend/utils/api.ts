@@ -1,4 +1,4 @@
-import type { User, Todo, TodoStats, TodoCreate, TodoUpdate } from '~/types'
+import type { User, Todo, TodoStats, TodoCreate, TodoUpdate, Notification } from '~/types'
 
 const BASE_URL = 'http://localhost:8000/api'
 const TIMEOUT_MS = 15000
@@ -82,5 +82,34 @@ export const todosApi = {
 
   stats() {
     return apiFetch<TodoStats>('/todos/stats')
+  },
+}
+
+// Notifications API
+export const notificationsApi = {
+  list(unreadOnly = false) {
+    return apiFetch<Notification[]>('/notifications', {
+      params: { unread_only: unreadOnly ? 'true' : undefined },
+    })
+  },
+
+  check() {
+    return apiFetch<Notification[]>('/notifications/check', { method: 'POST' })
+  },
+
+  unreadCount() {
+    return apiFetch<{ count: number }>('/notifications/unread-count')
+  },
+
+  markRead(id: string) {
+    return apiFetch<Notification>(`/notifications/${id}/read`, { method: 'POST' })
+  },
+
+  markAllRead() {
+    return apiFetch<{ updated: number }>('/notifications/read-all', { method: 'POST' })
+  },
+
+  clearAll() {
+    return apiFetch<{ removed: number }>('/notifications', { method: 'DELETE' })
   },
 }

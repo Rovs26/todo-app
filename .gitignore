@@ -23,3 +23,8 @@ Thumbs.db
 # Editors
 .vscode/
 .idea/
+
+# Local data files (per-developer state, should not be committed)
+backend/data/users.json
+backend/data/todos.json
+backend/data/notifications.json
